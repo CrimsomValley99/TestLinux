@@ -27,7 +27,6 @@ jobs:
       - name: 2. Install Chrome & AnyDesk
         run: |
           echo "Update repositori bawaan..."
-          # Perhatikan penambahan -u root di sini dan di bawahnya
           docker exec -u root kali-gui apt-get update -y
           docker exec -u root kali-gui apt-get install -y wget curl gnupg2
           
@@ -36,9 +35,14 @@ jobs:
           docker exec -u root kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
           docker exec -u root kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
           
-          echo "Mengunduh dan menginstal AnyDesk..."
-          docker exec -u root kali-gui bash -c "wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | apt-key add -"
-          docker exec -u root kali-gui bash -c 'echo "deb http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
+          echo "Mengunduh dan menginstal AnyDesk (Metode Modern)..."
+          # Membuat folder penyimpanan kunci keamanan
+          docker exec -u root kali-gui bash -c "mkdir -p /etc/apt/keyrings"
+          # Mengunduh dan memproses kunci AnyDesk menggunakan gpg
+          docker exec -u root kali-gui bash -c "curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg"
+          # Menambahkan repositori AnyDesk dengan merujuk pada kunci yang baru dibuat
+          docker exec -u root kali-gui bash -c 'echo "deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
+          # Install AnyDesk
           docker exec -u root kali-gui bash -c "apt-get update -y"
           docker exec -u root kali-gui bash -c "apt-get install -y anydesk"
 
