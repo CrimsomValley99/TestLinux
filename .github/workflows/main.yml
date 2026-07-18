@@ -36,13 +36,9 @@ jobs:
           docker exec -u root kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
           
           echo "Mengunduh dan menginstal AnyDesk (Metode Modern)..."
-          # Membuat folder penyimpanan kunci keamanan
           docker exec -u root kali-gui bash -c "mkdir -p /etc/apt/keyrings"
-          # Mengunduh dan memproses kunci AnyDesk menggunakan gpg
           docker exec -u root kali-gui bash -c "curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg"
-          # Menambahkan repositori AnyDesk dengan merujuk pada kunci yang baru dibuat
           docker exec -u root kali-gui bash -c 'echo "deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
-          # Install AnyDesk
           docker exec -u root kali-gui bash -c "apt-get update -y"
           docker exec -u root kali-gui bash -c "apt-get install -y anydesk"
 
@@ -52,7 +48,7 @@ jobs:
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           
-          cloudflared tunnel --url https://127.0.0.1:9020 --no-tls-verify > cloudflared.log 2>&1 &
+          cloudflared tunnel --url http://127.0.0.1:9020 > cloudflared.log 2>&1 &
           
           sleep 10
           
