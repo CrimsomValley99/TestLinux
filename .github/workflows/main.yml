@@ -1,62 +1,69 @@
-name: Kali Modern GUI + Chrome & AnyDesk
+name: Kali Modern GUI + Chrome & AnyDesk (MAX POWER)
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-kali-modern:
+  run-kali-max:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Clone, Fix & Build Modern Kali
+      - name: 1. Clone, Fix & Build
         run: |
           git clone https://github.com/csalab-id/kalilinux-docker.git
           cd kalilinux-docker
           
-          echo "Menambal Dockerfile yang error..."
+          echo "Babat habis error Dockerfile..."
           sed -i 's/sed -i.*sources.list/echo "Melewati error sources"/g' Dockerfile
           
           echo "Membangun sistem Docker..."
           docker build -t modern-kali .
           
-          echo "Menjalankan Kali Linux..."
-          docker run -dit --privileged --name kali-gui -p 9020:8080 -e PASSWORD="changeme" modern-kali
+          echo "Menjalankan Kali Linux dengan RESOURCE MAKSIMAL..."
+          # Ekstra RAM 4GB untuk grafis & proteksi agar Chrome tidak crash
+          docker run -dit --privileged --shm-size=4g --ipc=host --name kali-gui -p 9020:8080 -e PASSWORD="changeme" modern-kali
           
-          echo "Menunggu 20 detik agar Desktop menyala..."
+          echo "Menunggu 20 detik agar Desktop menyala optimal..."
           sleep 20
 
-      - name: 2. Install Chrome & AnyDesk
+      - name: 2. Install Chrome & AnyDesk (Mode Admin)
         run: |
           echo "Update repositori bawaan..."
           docker exec -u root kali-gui apt-get update -y
           docker exec -u root kali-gui apt-get install -y wget curl gnupg2
           
-          echo "Mengunduh dan menginstal Google Chrome Latest..."
+          echo "Mengunduh dan menginstal Google Chrome..."
           docker exec -u root kali-gui bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
           docker exec -u root kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
           docker exec -u root kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
           
-          echo "Mengunduh dan menginstal AnyDesk (Metode Modern)..."
+          echo "Mengunduh dan menginstal AnyDesk (Metode Anti-Error)..."
           docker exec -u root kali-gui bash -c "mkdir -p /etc/apt/keyrings"
           docker exec -u root kali-gui bash -c "curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg"
           docker exec -u root kali-gui bash -c 'echo "deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
           docker exec -u root kali-gui bash -c "apt-get update -y"
           docker exec -u root kali-gui bash -c "apt-get install -y anydesk"
+          
+          echo "Pendinginan sistem sejenak paska instalasi berat..."
+          sleep 10
 
-      - name: 3. Start Cloudflare Tunnel
+      - name: 3. Start Cloudflare Tunnel (Anti Bad Gateway)
         run: |
           echo "Menyiapkan Cloudflare Tunnel..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           
+          # Pakai HTTP agar tidak Bad Gateway 502
           cloudflared tunnel --url http://127.0.0.1:9020 > cloudflared.log 2>&1 &
           
-          sleep 10
+          echo "Tunggu tunnel stabil..."
+          sleep 15
           
           echo "=========================================================="
-          echo "Tautan Cloudflare Tunnel Kamu:"
+          echo "TAUTAN CLOUDFLARE KAMU:"
           grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' cloudflared.log
           echo "=========================================================="
-          echo "PENTING: Tambahkan /vnc.html di akhir URL!"
+          echo "PENTING: Wajib tambah /vnc.html di akhir URL!"
+          echo "Contoh URL  : https://contoh-link.trycloudflare.com/vnc.html"
           echo "Password VNC: changeme"
           
           sleep 3600
