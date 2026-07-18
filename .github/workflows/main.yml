@@ -7,23 +7,25 @@ jobs:
   run-kali-modern:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Clone & Build Modern Kali Docker
+      - name: 1. Clone, Fix & Build Modern Kali
         run: |
-          # Mengambil file dari repositori yang kamu temukan
           git clone https://github.com/csalab-id/kalilinux-docker.git
           cd kalilinux-docker
           
-          echo "Membangun sistem Docker (proses ini butuh 1-2 menit)..."
+          echo "Menambal Dockerfile yang error..."
+          # Menghapus perintah sed yang mencari file sources.list yang sudah tidak ada
+          sed -i 's/sed -i.*sources.list/echo "Melewati error sources"/g' Dockerfile
+          
+          echo "Membangun sistem Docker..."
           docker build -t modern-kali .
           
           echo "Menjalankan Kali Linux..."
-          # Port internal 8080 diarahkan ke luar 9020. Password diatur ke 'changeme'
           docker run -dit --privileged --name kali-gui -p 9020:8080 -e PASSWORD="changeme" modern-kali
           
           echo "Menunggu 20 detik agar Desktop menyala..."
           sleep 20
 
-      - name: 2. Install Chrome & AnyDesk (Tanpa Error GPG)
+      - name: 2. Install Chrome & AnyDesk
         run: |
           echo "Update repositori bawaan..."
           docker exec kali-gui apt-get update -y
