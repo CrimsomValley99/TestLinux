@@ -13,7 +13,6 @@ jobs:
           cd kalilinux-docker
           
           echo "Menambal Dockerfile yang error..."
-          # Menghapus perintah sed yang mencari file sources.list yang sudah tidak ada
           sed -i 's/sed -i.*sources.list/echo "Melewati error sources"/g' Dockerfile
           
           echo "Membangun sistem Docker..."
@@ -28,19 +27,20 @@ jobs:
       - name: 2. Install Chrome & AnyDesk
         run: |
           echo "Update repositori bawaan..."
-          docker exec kali-gui apt-get update -y
-          docker exec kali-gui apt-get install -y wget curl gnupg2
+          # Perhatikan penambahan -u root di sini dan di bawahnya
+          docker exec -u root kali-gui apt-get update -y
+          docker exec -u root kali-gui apt-get install -y wget curl gnupg2
           
           echo "Mengunduh dan menginstal Google Chrome Latest..."
-          docker exec kali-gui bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
-          docker exec kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
-          docker exec kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
+          docker exec -u root kali-gui bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
+          docker exec -u root kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
+          docker exec -u root kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
           
           echo "Mengunduh dan menginstal AnyDesk..."
-          docker exec kali-gui bash -c "wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | apt-key add -"
-          docker exec kali-gui bash -c 'echo "deb http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
-          docker exec kali-gui bash -c "apt-get update -y"
-          docker exec kali-gui bash -c "apt-get install -y anydesk"
+          docker exec -u root kali-gui bash -c "wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | apt-key add -"
+          docker exec -u root kali-gui bash -c 'echo "deb http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
+          docker exec -u root kali-gui bash -c "apt-get update -y"
+          docker exec -u root kali-gui bash -c "apt-get install -y anydesk"
 
       - name: 3. Start Cloudflare Tunnel
         run: |
