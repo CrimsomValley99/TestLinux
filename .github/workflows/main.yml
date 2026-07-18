@@ -29,8 +29,6 @@ jobs:
           docker exec -u root kali-gui bash -c "
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq 2>&1 | tail -2
-
-            echo '--- Install tools Kali lengkap ---'
             apt-get install -y \
               kali-linux-default \
               kali-desktop-xfce \
@@ -48,41 +46,97 @@ jobs:
               iproute2 \
               gnupg \
               gnupg2 \
+              sudo \
+              passwd \
               wget \
               curl \
-              procps 2>&1 | tail -10
-
+              procps \
+              openssh-server \
+              bash-completion 2>&1 | tail -10
             echo 'INSTALL DONE'
-            echo ''
-            echo '--- Verifikasi tools Kali ---'
-            which nmap && nmap --version | head -1 || echo 'nmap: not found'
-            which metasploit || which msfconsole && echo 'metasploit: OK' || echo 'metasploit: not in PATH'
-            which wireshark && wireshark --version | head -1 || echo 'wireshark: not found'
           "
           echo "=== PACKAGES OK ==="
 
-      - name: 3. Install Chrome & AnyDesk (fix gnupg)
+      - name: 3. Konfigurasi Users, Passwords & Root Access
+        run: |
+          echo "=== KONFIGURASI USER & PASSWORD ==="
+          docker exec -u root kali-gui bash -c "
+
+            echo '--- Set password root = root ---'
+            echo 'root:root' | chpasswd
+            echo 'Root password: root ✅'
+
+            echo '--- Tambah user abel ---'
+            useradd -m -s /bin/bash -G sudo,adm,cdrom,dip,plugdev,users abel 2>/dev/null || true
+            echo 'abel:root' | chpasswd
+            echo 'User abel dibuat, password: root ✅'
+
+            echo '--- Konfigurasi sudo tanpa password ---'
+            echo 'abel ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/abel
+            echo 'root ALL=(ALL) NOPASSWD:ALL' >> /etc/sudoers.d/abel
+            chmod 440 /etc/sudoers.d/abel
+            echo 'Sudo NOPASSWD: root & abel ✅'
+
+            echo '--- Enable SSH root login ---'
+            mkdir -p /etc/ssh
+            sed -i 's/#PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+            sed -i 's/PermitRootLogin.*/PermitRootLogin yes/' /etc/ssh/sshd_config 2>/dev/null || true
+            echo 'PermitRootLogin yes' >> /etc/ssh/sshd_config
+            echo 'PasswordAuthentication yes' >> /etc/ssh/sshd_config
+            echo 'SSH root login enabled ✅'
+
+            echo '--- Buat home abel lengkap ---'
+            mkdir -p /home/abel/.config /home/abel/Desktop /home/abel/Downloads
+            chown -R abel:abel /home/abel
+            echo 'Home abel configured ✅'
+
+            echo '--- Verifikasi users ---'
+            id root
+            id abel
+            grep -E '^(root|abel)' /etc/passwd
+          "
+          echo "=== USER CONFIG OK ==="
+
+      - name: 4. Install Chrome & AnyDesk (root support)
         run: |
           echo "=== INSTALL CHROME ==="
           docker exec -u root kali-gui bash -c "
             wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
             DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/chrome.deb 2>&1 | tail -3
-            google-chrome --version && echo 'Chrome OK'
+            google-chrome --version && echo 'Chrome OK ✅'
           "
 
-          echo "=== INSTALL ANYDESK (dengan gnupg fix) ==="
+          echo "=== INSTALL ANYDESK (with root support) ==="
           docker exec -u root kali-gui bash -c "
             mkdir -p /etc/apt/keyrings
-            # FIX: gnupg sudah diinstall di step sebelumnya
             curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg
             chmod 644 /etc/apt/keyrings/anydesk.gpg
             echo 'deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main' > /etc/apt/sources.list.d/anydesk.list
-            apt-get update -qq 2>&1 | grep -v 'WARNING\|Hit\|Get' || true
+            apt-get update -qq 2>&1 | grep -v 'Hit\|Get\|Ign' | head -5 || true
             DEBIAN_FRONTEND=noninteractive apt-get install -y anydesk 2>&1 | tail -5
-            anydesk --version && echo 'AnyDesk OK' || echo 'AnyDesk install failed'
-          " || echo "AnyDesk optional - skipping"
 
-      - name: 4. Start Xvfb + XFCE + x11vnc + noVNC (dengan health check)
+            echo '--- Konfigurasi AnyDesk untuk root ---'
+            mkdir -p /etc/anydesk
+            # Allow running as root
+            cat > /etc/anydesk/system.conf << 'EOF'
+ad.anynet.lease_time=1
+ad.anynet.lan_routing=true
+EOF
+            # Set AnyDesk password = root
+            echo 'root' | anydesk --stdin-passwd 2>/dev/null || \
+            printf 'root\nroot\n' | anydesk --set-password 2>/dev/null || \
+            echo 'AnyDesk password set via config'
+
+            # Disable security popup untuk root
+            mkdir -p /root/.config/AnyDesk
+            cat > /root/.config/AnyDesk/user.conf << 'EOF'
+app.allow_run_as_root=true
+ad.features.security.enabled=false
+EOF
+            anydesk --version && echo 'AnyDesk OK ✅' || echo 'AnyDesk installed'
+          " || echo "AnyDesk install optional - skipping"
+
+      - name: 5. Start Xvfb + XFCE + x11vnc + noVNC
         run: |
           echo "=== [1/4] START XVFB ==="
           docker exec -u root kali-gui bash -c "
@@ -94,35 +148,37 @@ jobs:
           "
           sleep 4
           docker exec -u root kali-gui bash -c "
-            ps aux | grep -c '[X]vfb' && echo 'Xvfb: RUNNING ✅' || echo 'Xvfb: NOT RUNNING ❌'
+            ps aux | grep -c '[X]vfb' && echo 'Xvfb: RUNNING ✅' || echo 'Xvfb: FAILED ❌'
           "
 
-          echo "=== [2/4] START XFCE4 via dbus-run-session ==="
+          echo "=== [2/4] START XFCE4 (dbus-run-session, user root) ==="
           docker exec -d -u root kali-gui bash -c "
             export DISPLAY=:1
             export HOME=/root
+            export USER=root
             rm -f /root/.config/xfce4/xfconf/xfce-perchannel-xml/displays.xml 2>/dev/null || true
             dbus-run-session -- startxfce4 > /tmp/xfce4.log 2>&1
           "
           sleep 15
           docker exec -u root kali-gui bash -c "
-            echo '--- Proses XFCE aktif ---'
+            echo '--- Proses XFCE ---'
             ps aux | grep -E '(xfce|xfwm|xfdesktop|xfce4-panel|dbus)' | grep -v grep | head -10
-            echo '--- Log XFCE (5 baris terakhir) ---'
+            echo '--- Log XFCE ---'
             cat /tmp/xfce4.log 2>/dev/null | tail -5 || echo 'Log kosong'
           "
 
-          echo "=== [3/4] START X11VNC ==="
+          echo "=== [3/4] START X11VNC (password: root) ==="
           docker exec -d -u root kali-gui bash -c "
             x11vnc \
               -display :1 \
-              -passwd password123 \
+              -passwd root \
               -forever \
               -shared \
               -rfbport 5900 \
               -o /tmp/x11vnc.log \
               -bg \
-              -xkb 2>&1
+              -xkb \
+              -allow_root 2>&1
           "
           sleep 5
           docker exec -u root kali-gui bash -c "
@@ -143,18 +199,42 @@ jobs:
             cat /tmp/websockify.log 2>/dev/null | tail -5
           " || true
 
-          echo "=== STATUS FINAL SEMUA PROSES ==="
+          echo "=== STATUS FINAL ==="
           docker exec -u root kali-gui bash -c "
-            echo '--- Proses aktif ---'
-            ps aux | grep -E '(Xvfb|xfce|xfwm4|xfdesktop|xfce4-panel|x11vnc|websockify)' | grep -v grep
-            echo '--- Port listen ---'
-            netstat -tlnp 2>/dev/null | grep -E '(5900|6080)' || true
-            echo '--- Kali Linux version ---'
+            echo '--- OS Info ---'
             cat /etc/os-release | grep -E '(NAME|VERSION)'
+            echo ''
+            echo '--- Users ---'
+            grep -E '^(root|abel)' /etc/passwd
+            echo ''
+            echo '--- Proses aktif ---'
+            ps aux | grep -E '(Xvfb|xfce|xfwm4|xfdesktop|xfce4-panel|x11vnc|websockify|anydesk)' | grep -v grep
+            echo ''
+            echo '--- Port listening ---'
+            netstat -tlnp 2>/dev/null | grep -E '(5900|6080)' || true
+            echo ''
+            echo '--- Kali Tools ---'
+            which nmap && nmap --version | head -1
+            which wireshark && echo wireshark OK
+            which msfconsole && echo metasploit OK || true
           " || true
 
-      - name: 5. Cloudflare Tunnel + Tampilkan Link
+      - name: 6. Start AnyDesk + Cloudflare Tunnel
         run: |
+          echo "=== START ANYDESK SERVICE ==="
+          docker exec -d -u root kali-gui bash -c "
+            export DISPLAY=:1
+            anydesk --service 2>/dev/null &
+            sleep 3
+            anydesk --get-id 2>/dev/null | tee /tmp/anydesk_id.txt || echo 'AnyDesk ID: N/A'
+          " || true
+
+          sleep 5
+          docker exec -u root kali-gui bash -c "
+            echo 'AnyDesk ID:'
+            cat /tmp/anydesk_id.txt 2>/dev/null || anydesk --get-id 2>/dev/null || echo 'N/A'
+          " || true
+
           echo "=== CLOUDFLARE TUNNEL ==="
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
@@ -162,36 +242,42 @@ jobs:
           CONTAINER_IP=$(docker inspect kali-gui --format='{{.NetworkSettings.IPAddress}}')
           echo "Container IP: $CONTAINER_IP"
 
-          # Test aksesibilitas port 6080
           curl -s --max-time 5 http://${CONTAINER_IP}:6080 > /dev/null && \
             echo "Port 6080: ACCESSIBLE ✅" || \
-            echo "Port 6080: tidak bisa diakses dari host, cek container"
+            echo "Port 6080: checking..."
 
-          # Buka tunnel ke container IP
           cloudflared tunnel --url http://${CONTAINER_IP}:6080 > /tmp/cloudflared.log 2>&1 &
 
           echo "Menunggu tunnel stabil (30 detik)..."
           sleep 30
 
           echo "=========================================="
-          echo "LOG CLOUDFLARE:"
           cat /tmp/cloudflared.log
           echo "=========================================="
 
           LINK=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
+          ANYDESK_ID=$(docker exec kali-gui cat /tmp/anydesk_id.txt 2>/dev/null || echo "cek di log AnyDesk")
 
           echo ""
-          echo "=========================================="
-          echo "  LINK AKSES KALI LINUX FULL:"
-          echo "  ${LINK}/vnc.html"
+          echo "============================================"
+          echo "  AKSES KALI LINUX:"
           echo ""
-          echo "  Password VNC: password123"
-          echo "  OS: Kali Linux (kali-rolling)"
-          echo "  Tools: kali-linux-default (nmap, wireshark, dll)"
-          echo "=========================================="
+          echo "  [noVNC Browser]"
+          echo "  URL   : ${LINK}/vnc.html"
+          echo "  Pass  : root"
+          echo ""
+          echo "  [AnyDesk Remote Desktop]"
+          echo "  ID    : $ANYDESK_ID"
+          echo "  Pass  : root"
+          echo ""
+          echo "  [Users]"
+          echo "  root  : password = root (superuser)"
+          echo "  abel  : password = root (sudo NOPASSWD)"
+          echo ""
+          echo "  [OS] Kali Linux Rolling (kali-linux-default)"
+          echo "============================================"
 
-          # Cetak ulang link tiap 5 menit agar mudah dilihat di log
           for i in $(seq 1 72); do
             sleep 300
-            echo "[$(date '+%H:%M')] LINK AKTIF: ${LINK}/vnc.html  |  Password: password123"
+            echo "[$(date '+%H:%M')] AKTIF | noVNC: ${LINK}/vnc.html | Pass: root"
           done
