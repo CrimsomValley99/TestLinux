@@ -1,30 +1,47 @@
-name: Debug Kali GUI Port 9020
+name: Kali GUI + Chrome & AnyDesk
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-kali-cf:
+  run-kali-full:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Jalankan Kali Docker (Pakai -dit)
+      - name: 1. Jalankan Kali Docker
         run: |
-          # Perhatikan penambahan -dit di bawah ini agar container tidak langsung exit
           docker run -dit --privileged --name kali-gui -p 9020:8080 -p 9021:5900 iphoneintosh/kali-docker:latest
-          
-          echo "Menunggu 30 detik agar GUI menyala..."
-          sleep 30
+          echo "Menunggu 20 detik agar sistem GUI booting..."
+          sleep 20
 
-      - name: 2. CEK LOG DOCKER
+      - name: 2. Fix Error APT (Seperti di Screenshot)
         run: |
-          echo "=== STATUS CONTAINER ==="
-          docker ps -a
-          
-          echo -e "\n=== LOG KALI LINUX ==="
-          docker logs kali-gui
+          echo "Memperbaiki masalah NO_PUBKEY dan 404..."
+          # Memaksa update dan menginstal keyring terbaru agar GPG key kembali valid
+          docker exec kali-gui bash -c "apt-get update --allow-insecure-repositories || true"
+          docker exec kali-gui bash -c "apt-get install -y kali-archive-keyring --allow-unauthenticated"
+          # Update ulang dengan kunci yang sudah benar
+          docker exec kali-gui bash -c "apt-get update -y"
+          # Install tools dasar yang dibutuhkan
+          docker exec kali-gui bash -c "apt-get install -y wget curl gnupg2"
 
-      - name: 3. Install & Start Cloudflare
+      - name: 3. Install Google Chrome Latest
         run: |
+          echo "Mengunduh dan menginstal Google Chrome..."
+          docker exec kali-gui bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
+          docker exec kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
+          docker exec kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
+
+      - name: 4. Install AnyDesk
+        run: |
+          echo "Menambahkan repo dan menginstal AnyDesk..."
+          docker exec kali-gui bash -c "wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | apt-key add -"
+          docker exec kali-gui bash -c 'echo "deb http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
+          docker exec kali-gui bash -c "apt-get update -y"
+          docker exec kali-gui bash -c "apt-get install -y anydesk"
+
+      - name: 5. Start Cloudflare Tunnel
+        run: |
+          echo "Menyiapkan Cloudflare Tunnel..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           
@@ -37,6 +54,6 @@ jobs:
           grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' cloudflared.log
           echo "=========================================================="
           echo "PENTING: Tambahkan /vnc.html di akhir URL!"
-          echo "Password: changeme"
+          echo "Password VNC: changeme"
           
           sleep 3600
