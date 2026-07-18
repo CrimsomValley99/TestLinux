@@ -1,0 +1,41 @@
+name: Run Kali GUI with Cloudflare Tunnel
+
+on:
+  workflow_dispatch:
+
+jobs:
+  run-kali-cf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Jalankan Kali Docker
+        run: |
+          # Menjalankan container di background (-d)
+          docker run -d --name kali-gui -p 8080:8080 iphoneintosh/kali-docker:latest
+          
+          # Beri waktu agar layanan desktop dan VNC siap
+          sleep 15
+
+      - name: Install Cloudflared
+        run: |
+          # Download dan install Cloudflare Tunnel daemon
+          wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
+          sudo dpkg -i cloudflared-linux-amd64.deb
+
+      - name: Start Cloudflare Tunnel
+        run: |
+          # Jalankan tunnel ke https://localhost:8080, abaikan error self-signed cert, simpan log ke file
+          cloudflared tunnel --url https://localhost:8080 --no-tls-verify > cloudflared.log 2>&1 &
+          
+          # Tunggu sebentar sampai Cloudflare selesai membuat URL
+          sleep 10
+          
+          # Cari dan tampilkan URL trycloudflare di console log
+          echo "=========================================================="
+          echo "Tautan Cloudflare Tunnel Kamu:"
+          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' cloudflared.log
+          echo "=========================================================="
+          echo "PENTING: Tambahkan /vnc.html di akhir URL saat dibuka di browser!"
+          echo "Password VNC: changeme"
+          
+          # Tahan runner selama 1 jam agar tidak langsung mati
+          sleep 3600
