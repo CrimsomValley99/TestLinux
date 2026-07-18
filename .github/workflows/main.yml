@@ -23,14 +23,17 @@ jobs:
           docker ps
           echo "=== DEPLOY OK ==="
 
-      - name: 2. Install Xvfb + x11vnc + noVNC + XFCE + dbus
+      - name: 2. Install Full Kali Tools + Desktop + VNC
         run: |
-          echo "=== INSTALL PACKAGES ==="
+          echo "=== INSTALL FULL KALI + DESKTOP + VNC ==="
           docker exec -u root kali-gui bash -c "
             export DEBIAN_FRONTEND=noninteractive
             apt-get update -qq 2>&1 | tail -2
-            apt-get install -y --no-install-recommends \
-              xfce4 \
+
+            echo '--- Install tools Kali lengkap ---'
+            apt-get install -y \
+              kali-linux-default \
+              kali-desktop-xfce \
               xfce4-goodies \
               xfce4-terminal \
               x11vnc \
@@ -43,29 +46,43 @@ jobs:
               xfonts-base \
               net-tools \
               iproute2 \
-              wget curl procps 2>&1 | tail -5
+              gnupg \
+              gnupg2 \
+              wget \
+              curl \
+              procps 2>&1 | tail -10
+
             echo 'INSTALL DONE'
+            echo ''
+            echo '--- Verifikasi tools Kali ---'
+            which nmap && nmap --version | head -1 || echo 'nmap: not found'
+            which metasploit || which msfconsole && echo 'metasploit: OK' || echo 'metasploit: not in PATH'
+            which wireshark && wireshark --version | head -1 || echo 'wireshark: not found'
           "
           echo "=== PACKAGES OK ==="
 
-      - name: 3. Install Chrome & AnyDesk
+      - name: 3. Install Chrome & AnyDesk (fix gnupg)
         run: |
           echo "=== INSTALL CHROME ==="
           docker exec -u root kali-gui bash -c "
             wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
             DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/chrome.deb 2>&1 | tail -3
-            google-chrome --version && echo 'Chrome OK' || echo 'Chrome not found'
+            google-chrome --version && echo 'Chrome OK'
           "
-          echo "=== INSTALL ANYDESK ==="
+
+          echo "=== INSTALL ANYDESK (dengan gnupg fix) ==="
           docker exec -u root kali-gui bash -c "
             mkdir -p /etc/apt/keyrings
+            # FIX: gnupg sudah diinstall di step sebelumnya
             curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg
+            chmod 644 /etc/apt/keyrings/anydesk.gpg
             echo 'deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main' > /etc/apt/sources.list.d/anydesk.list
-            apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y anydesk 2>&1 | tail -3
-            echo 'AnyDesk OK'
-          " || echo "AnyDesk optional, skipping..."
+            apt-get update -qq 2>&1 | grep -v 'WARNING\|Hit\|Get' || true
+            DEBIAN_FRONTEND=noninteractive apt-get install -y anydesk 2>&1 | tail -5
+            anydesk --version && echo 'AnyDesk OK' || echo 'AnyDesk install failed'
+          " || echo "AnyDesk optional - skipping"
 
-      - name: 4. Start Xvfb + XFCE (dbus-run-session) + x11vnc + noVNC
+      - name: 4. Start Xvfb + XFCE + x11vnc + noVNC (dengan health check)
         run: |
           echo "=== [1/4] START XVFB ==="
           docker exec -u root kali-gui bash -c "
@@ -77,7 +94,7 @@ jobs:
           "
           sleep 4
           docker exec -u root kali-gui bash -c "
-            ps aux | grep -c '[X]vfb' && echo 'Xvfb: RUNNING' || echo 'Xvfb: NOT RUNNING'
+            ps aux | grep -c '[X]vfb' && echo 'Xvfb: RUNNING ✅' || echo 'Xvfb: NOT RUNNING ❌'
           "
 
           echo "=== [2/4] START XFCE4 via dbus-run-session ==="
@@ -87,11 +104,11 @@ jobs:
             rm -f /root/.config/xfce4/xfconf/xfce-perchannel-xml/displays.xml 2>/dev/null || true
             dbus-run-session -- startxfce4 > /tmp/xfce4.log 2>&1
           "
-          sleep 12
+          sleep 15
           docker exec -u root kali-gui bash -c "
-            echo '--- Proses XFCE ---'
+            echo '--- Proses XFCE aktif ---'
             ps aux | grep -E '(xfce|xfwm|xfdesktop|xfce4-panel|dbus)' | grep -v grep | head -10
-            echo '--- Log XFCE ---'
+            echo '--- Log XFCE (5 baris terakhir) ---'
             cat /tmp/xfce4.log 2>/dev/null | tail -5 || echo 'Log kosong'
           "
 
@@ -107,55 +124,54 @@ jobs:
               -bg \
               -xkb 2>&1
           "
-          sleep 4
-          # FIX: pakai netstat (bukan ss), dan || true agar tidak gagalkan step
+          sleep 5
           docker exec -u root kali-gui bash -c "
-            netstat -tlnp 2>/dev/null | grep 5900 && echo 'x11vnc port 5900: LISTEN ✅' || echo 'x11vnc port 5900: belum terdeteksi'
+            netstat -tlnp 2>/dev/null | grep 5900 && echo 'x11vnc port 5900: LISTEN ✅' || echo 'x11vnc port 5900: NOT OPEN ❌'
             cat /tmp/x11vnc.log 2>/dev/null | tail -5
           " || true
 
-          echo "=== [4/4] START NOVNC ==="
+          echo "=== [4/4] START NOVNC WEBSOCKIFY ==="
           docker exec -d -u root kali-gui bash -c "
             websockify \
               --web=/usr/share/novnc/ \
               --log-file=/tmp/websockify.log \
               6080 localhost:5900
           "
-          sleep 4
-          # FIX: pakai netstat, dan || true
+          sleep 5
           docker exec -u root kali-gui bash -c "
-            netstat -tlnp 2>/dev/null | grep 6080 && echo 'noVNC port 6080: LISTEN ✅' || echo 'noVNC port 6080: belum terdeteksi'
+            netstat -tlnp 2>/dev/null | grep 6080 && echo 'noVNC port 6080: LISTEN ✅' || echo 'noVNC port 6080: NOT OPEN ❌'
             cat /tmp/websockify.log 2>/dev/null | tail -5
           " || true
 
-          echo "=== STATUS LENGKAP ==="
+          echo "=== STATUS FINAL SEMUA PROSES ==="
           docker exec -u root kali-gui bash -c "
             echo '--- Proses aktif ---'
             ps aux | grep -E '(Xvfb|xfce|xfwm4|xfdesktop|xfce4-panel|x11vnc|websockify)' | grep -v grep
             echo '--- Port listen ---'
-            netstat -tlnp 2>/dev/null | grep -E '(5900|6080)' || echo 'netstat check done'
+            netstat -tlnp 2>/dev/null | grep -E '(5900|6080)' || true
+            echo '--- Kali Linux version ---'
+            cat /etc/os-release | grep -E '(NAME|VERSION)'
           " || true
-          echo "=== STACK READY ==="
 
-      - name: 5. Cloudflare Tunnel + Tampilkan Link Akses
+      - name: 5. Cloudflare Tunnel + Tampilkan Link
         run: |
-          echo "=== SETUP CLOUDFLARE TUNNEL ==="
+          echo "=== CLOUDFLARE TUNNEL ==="
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
 
           CONTAINER_IP=$(docker inspect kali-gui --format='{{.NetworkSettings.IPAddress}}')
           echo "Container IP: $CONTAINER_IP"
 
-          # Test koneksi dulu
+          # Test aksesibilitas port 6080
           curl -s --max-time 5 http://${CONTAINER_IP}:6080 > /dev/null && \
             echo "Port 6080: ACCESSIBLE ✅" || \
-            echo "Port 6080: check container logs"
+            echo "Port 6080: tidak bisa diakses dari host, cek container"
 
-          # Buka tunnel
+          # Buka tunnel ke container IP
           cloudflared tunnel --url http://${CONTAINER_IP}:6080 > /tmp/cloudflared.log 2>&1 &
 
-          echo "Menunggu tunnel stabil (25 detik)..."
-          sleep 25
+          echo "Menunggu tunnel stabil (30 detik)..."
+          sleep 30
 
           echo "=========================================="
           echo "LOG CLOUDFLARE:"
@@ -163,15 +179,19 @@ jobs:
           echo "=========================================="
 
           LINK=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
+
           echo ""
           echo "=========================================="
-          echo "LINK AKSES KALI LINUX GUI:"
-          echo "${LINK}/vnc.html"
+          echo "  LINK AKSES KALI LINUX FULL:"
+          echo "  ${LINK}/vnc.html"
           echo ""
-          echo "Password VNC: password123"
+          echo "  Password VNC: password123"
+          echo "  OS: Kali Linux (kali-rolling)"
+          echo "  Tools: kali-linux-default (nmap, wireshark, dll)"
           echo "=========================================="
 
+          # Cetak ulang link tiap 5 menit agar mudah dilihat di log
           for i in $(seq 1 72); do
             sleep 300
-            echo "[$(date)] Session aktif - Link: ${LINK}/vnc.html"
+            echo "[$(date '+%H:%M')] LINK AKTIF: ${LINK}/vnc.html  |  Password: password123"
           done
