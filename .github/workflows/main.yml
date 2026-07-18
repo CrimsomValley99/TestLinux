@@ -28,7 +28,7 @@ jobs:
         run: |
           # Menggunakan 127.0.0.1 alih-alih localhost untuk menghindari isu IPv6
           # Mengabaikan TLS verify karena pakai self-signed cert
-          cloudflared tunnel --url https://127.0.0.1:8080 --no-tls-verify > cloudflared.log 2>&1 &
+          cloudflared tunnel --url http://127.0.0.1:8080 --no-tls-verify > cloudflared.log 2>&1 &
           
           sleep 10
           
