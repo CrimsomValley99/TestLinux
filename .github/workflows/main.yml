@@ -1,69 +1,71 @@
-name: Kali Modern GUI + Chrome & AnyDesk (MAX POWER)
+name: Kali WebTop Direct + Debug Logs
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-kali-max:
+  run-kali-direct:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Clone, Fix & Build
+      - name: 1. Deploy Image Kali WebTop (Tanpa Build)
         run: |
-          git clone https://github.com/csalab-id/kalilinux-docker.git
-          cd kalilinux-docker
+          echo "Menarik dan menjalankan image LinuxServer WebTop Kali..."
+          docker run -d \
+            --name kali-gui \
+            --security-opt seccomp=unconfined \
+            --shm-size=4gb \
+            -p 3000:3000 \
+            -e PUID=1000 \
+            -e PGID=1000 \
+            -e TZ=Asia/Jakarta \
+            lscr.io/linuxserver/webtop:kali
           
-          echo "Babat habis error Dockerfile..."
-          sed -i 's/sed -i.*sources.list/echo "Melewati error sources"/g' Dockerfile
-          
-          echo "Membangun sistem Docker..."
-          docker build -t modern-kali .
-          
-          echo "Menjalankan Kali Linux dengan RESOURCE MAKSIMAL..."
-          # Ekstra RAM 4GB untuk grafis & proteksi agar Chrome tidak crash
-          docker run -dit --privileged --shm-size=4g --ipc=host --name kali-gui -p 9020:8080 -e PASSWORD="changeme" modern-kali
-          
-          echo "Menunggu 20 detik agar Desktop menyala optimal..."
+          echo "Menunggu 20 detik agar antarmuka GUI siap..."
           sleep 20
+          
+          echo "=========================================================="
+          echo "LOG DOCKER (DEBUGGING GUI KALI):"
+          docker logs kali-gui
+          echo "=========================================================="
 
       - name: 2. Install Chrome & AnyDesk (Mode Admin)
         run: |
-          echo "Update repositori bawaan..."
+          echo "Menginstal aplikasi tambahan..."
+          # WebTop menggunakan user 'abc' atau 'root', kita paksa pakai root
           docker exec -u root kali-gui apt-get update -y
           docker exec -u root kali-gui apt-get install -y wget curl gnupg2
           
-          echo "Mengunduh dan menginstal Google Chrome..."
+          echo "Mengunduh Chrome..."
           docker exec -u root kali-gui bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
           docker exec -u root kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
-          docker exec -u root kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
           
-          echo "Mengunduh dan menginstal AnyDesk (Metode Anti-Error)..."
+          echo "Mengunduh AnyDesk..."
           docker exec -u root kali-gui bash -c "mkdir -p /etc/apt/keyrings"
           docker exec -u root kali-gui bash -c "curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg"
           docker exec -u root kali-gui bash -c 'echo "deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
-          docker exec -u root kali-gui bash -c "apt-get update -y"
-          docker exec -u root kali-gui bash -c "apt-get install -y anydesk"
-          
-          echo "Pendinginan sistem sejenak paska instalasi berat..."
-          sleep 10
+          docker exec -u root kali-gui bash -c "apt-get update -y && apt-get install -y anydesk"
 
-      - name: 3. Start Cloudflare Tunnel (Anti Bad Gateway)
+      - name: 3. Start Cloudflare Tunnel & Debug
         run: |
           echo "Menyiapkan Cloudflare Tunnel..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
           
-          # Pakai HTTP agar tidak Bad Gateway 502
-          cloudflared tunnel --url http://127.0.0.1:9020 > cloudflared.log 2>&1 &
+          # WebTop berjalan di port 3000 menggunakan HTTP
+          cloudflared tunnel --url http://127.0.0.1:3000 > cloudflared.log 2>&1 &
           
-          echo "Tunggu tunnel stabil..."
+          echo "Menunggu Cloudflare stabil (15 detik)..."
           sleep 15
           
           echo "=========================================================="
-          echo "TAUTAN CLOUDFLARE KAMU:"
+          echo "LOG CLOUDFLARE (DEBUGGING KONEKSI):"
+          cat cloudflared.log
+          echo "=========================================================="
+          
+          echo "TAUTAN AKSES KAMU:"
           grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' cloudflared.log
           echo "=========================================================="
-          echo "PENTING: Wajib tambah /vnc.html di akhir URL!"
-          echo "Contoh URL  : https://contoh-link.trycloudflare.com/vnc.html"
-          echo "Password VNC: changeme"
+          echo "PENTING: CUKUP KLIK LINK DI ATAS!"
+          echo "Kamu TIDAK PERLU menambahkan /vnc.html lagi."
           
           sleep 3600
