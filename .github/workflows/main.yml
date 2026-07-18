@@ -6,66 +6,112 @@ on:
 jobs:
   run-kali-direct:
     runs-on: ubuntu-latest
+    timeout-minutes: 360
     steps:
-      - name: 1. Deploy Image Kali WebTop (Tanpa Build)
+      - name: 1. Deploy Kali Linux + XFCE + noVNC
         run: |
-          echo "Menarik dan menjalankan image LinuxServer WebTop Kali..."
+          echo "Menarik image Kali Linux resmi..."
+          docker pull kalilinux/kali-rolling
+
+          echo "Menjalankan container Kali Linux..."
           docker run -d \
             --name kali-gui \
             --security-opt seccomp=unconfined \
             --shm-size=4gb \
-            -p 3000:3000 \
-            -e PUID=1000 \
-            -e PGID=1000 \
-            -e TZ=Asia/Jakarta \
-            lscr.io/linuxserver/webtop:kali
-          
-          echo "Menunggu 20 detik agar antarmuka GUI siap..."
-          sleep 20
-          
-          echo "=========================================================="
-          echo "LOG DOCKER (DEBUGGING GUI KALI):"
-          docker logs kali-gui
-          echo "=========================================================="
+            --privileged \
+            -p 5901:5901 \
+            -p 6080:6080 \
+            -e DISPLAY=:1 \
+            kalilinux/kali-rolling \
+            /bin/bash -c "sleep infinity"
 
-      - name: 2. Install Chrome & AnyDesk (Mode Admin)
-        run: |
-          echo "Menginstal aplikasi tambahan..."
-          # WebTop menggunakan user 'abc' atau 'root', kita paksa pakai root
-          docker exec -u root kali-gui apt-get update -y
-          docker exec -u root kali-gui apt-get install -y wget curl gnupg2
-          
-          echo "Mengunduh Chrome..."
-          docker exec -u root kali-gui bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
-          docker exec -u root kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
-          
-          echo "Mengunduh AnyDesk..."
-          docker exec -u root kali-gui bash -c "mkdir -p /etc/apt/keyrings"
-          docker exec -u root kali-gui bash -c "curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg"
-          docker exec -u root kali-gui bash -c 'echo "deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
-          docker exec -u root kali-gui bash -c "apt-get update -y && apt-get install -y anydesk"
+          echo "Menunggu container siap (5 detik)..."
+          sleep 5
 
-      - name: 3. Start Cloudflare Tunnel & Debug
+          echo "=========================================="
+          echo "STATUS CONTAINER:"
+          docker ps
+          echo "=========================================="
+
+      - name: 2. Install XFCE + VNC + noVNC di dalam Kali
         run: |
-          echo "Menyiapkan Cloudflare Tunnel..."
+          echo "Update apt dan install XFCE + VNC..."
+          docker exec -u root kali-gui bash -c "
+            export DEBIAN_FRONTEND=noninteractive
+            apt-get update -qq
+            apt-get install -y --no-install-recommends \
+              kali-desktop-xfce \
+              tightvncserver \
+              novnc \
+              websockify \
+              dbus-x11 \
+              x11-xserver-utils \
+              wget curl
+          "
+          echo "Install selesai!"
+
+      - name: 3. Install Chrome & AnyDesk
+        run: |
+          echo "Mengunduh dan install Chrome..."
+          docker exec -u root kali-gui bash -c "
+            wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
+            apt-get install -y /tmp/chrome.deb || apt-get install -yf
+          "
+
+          echo "Install AnyDesk..."
+          docker exec -u root kali-gui bash -c "
+            mkdir -p /etc/apt/keyrings
+            curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg
+            echo 'deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main' > /etc/apt/sources.list.d/anydesk.list
+            apt-get update -qq && apt-get install -y anydesk
+          "
+          echo "Chrome & AnyDesk berhasil diinstall!"
+
+      - name: 4. Start VNC Server + noVNC
+        run: |
+          echo "Menyiapkan VNC server di dalam container..."
+          docker exec -u root kali-gui bash -c "
+            mkdir -p /root/.vnc
+            echo 'password' | vncpasswd -f > /root/.vnc/passwd
+            chmod 600 /root/.vnc/passwd
+          "
+
+          docker exec -d -u root kali-gui bash -c "
+            export DISPLAY=:1
+            vncserver :1 -geometry 1920x1080 -depth 24 -passwordfile /root/.vnc/passwd 2>&1 || true
+            sleep 3
+            DISPLAY=:1 startxfce4 &
+          "
+
+          echo "Memulai noVNC..."
+          docker exec -d -u root kali-gui bash -c "
+            /usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 6080 &
+          "
+
+          sleep 5
+          echo "VNC & noVNC siap!"
+
+      - name: 5. Start Cloudflare Tunnel & Tampilkan Link
+        run: |
+          echo "Menginstall cloudflared..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
-          
-          # WebTop berjalan di port 3000 menggunakan HTTP
-          cloudflared tunnel --url http://127.0.0.1:3000 > cloudflared.log 2>&1 &
-          
-          echo "Menunggu Cloudflare stabil (15 detik)..."
-          sleep 15
-          
-          echo "=========================================================="
-          echo "LOG CLOUDFLARE (DEBUGGING KONEKSI):"
-          cat cloudflared.log
-          echo "=========================================================="
-          
-          echo "TAUTAN AKSES KAMU:"
-          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' cloudflared.log
-          echo "=========================================================="
-          echo "PENTING: CUKUP KLIK LINK DI ATAS!"
-          echo "Kamu TIDAK PERLU menambahkan /vnc.html lagi."
-          
-          sleep 3600
+
+          echo "Membuka tunnel ke port 6080 (noVNC)..."
+          cloudflared tunnel --url http://localhost:6080 > /tmp/cloudflared.log 2>&1 &
+
+          echo "Menunggu tunnel stabil (20 detik)..."
+          sleep 20
+
+          echo "=========================================="
+          echo "LOG CLOUDFLARE:"
+          cat /tmp/cloudflared.log
+          echo "=========================================="
+
+          echo "LINK AKSES KAMU:"
+          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
+          echo "=========================================="
+          echo "Buka link di atas -> masukkan password VNC: password"
+          echo "=========================================="
+
+          sleep 21600
