@@ -118,10 +118,9 @@ jobs:
             echo '--- Konfigurasi AnyDesk untuk root ---'
             mkdir -p /etc/anydesk
             # Allow running as root
-            cat > /etc/anydesk/system.conf << 'EOF'
-ad.anynet.lease_time=1
-ad.anynet.lan_routing=true
-EOF
+            echo "ad.anynet.lease_time=1" > /etc/anydesk/system.conf
+            echo "ad.anynet.lan_routing=true" >> /etc/anydesk/system.conf
+            EOF
             # Set AnyDesk password = root
             echo 'root' | anydesk --stdin-passwd 2>/dev/null || \
             printf 'root\nroot\n' | anydesk --set-password 2>/dev/null || \
@@ -129,10 +128,9 @@ EOF
 
             # Disable security popup untuk root
             mkdir -p /root/.config/AnyDesk
-            cat > /root/.config/AnyDesk/user.conf << 'EOF'
-app.allow_run_as_root=true
-ad.features.security.enabled=false
-EOF
+            echo "app.allow_run_as_root=true" > /root/.config/AnyDesk/user.conf
+            echo "ad.features.security.enabled=false" >> /root/.config/AnyDesk/user.conf
+            EOF
             anydesk --version && echo 'AnyDesk OK ✅' || echo 'AnyDesk installed'
           " || echo "AnyDesk install optional - skipping"
 
