@@ -13,16 +13,18 @@ jobs:
           echo "Menunggu 20 detik agar sistem GUI booting..."
           sleep 20
 
-      - name: 2. Fix Error APT (Seperti di Screenshot)
+      - name: 2. Fix Error APT (Suntik GPG Key Manual)
         run: |
-          echo "Memperbaiki masalah NO_PUBKEY dan 404..."
-          # Memaksa update dan menginstal keyring terbaru agar GPG key kembali valid
-          docker exec kali-gui bash -c "apt-get update --allow-insecure-repositories || true"
-          docker exec kali-gui bash -c "apt-get install -y kali-archive-keyring --allow-unauthenticated"
-          # Update ulang dengan kunci yang sudah benar
-          docker exec kali-gui bash -c "apt-get update -y"
-          # Install tools dasar yang dibutuhkan
-          docker exec kali-gui bash -c "apt-get install -y wget curl gnupg2"
+          echo "Mengunduh GPG Key Kali Linux terbaru lewat GitHub Runner..."
+          wget -q -O archive-key.asc https://archive.kali.org/archive-key.asc
+          
+          echo "Menyuntikkan kunci ke dalam container Kali Linux..."
+          docker cp archive-key.asc kali-gui:/tmp/archive-key.asc
+          docker exec kali-gui apt-key add /tmp/archive-key.asc
+          
+          echo "Melakukan update dan instalasi tools dasar..."
+          docker exec kali-gui apt-get update -y
+          docker exec kali-gui apt-get install -y wget curl gnupg2
 
       - name: 3. Install Google Chrome Latest
         run: |
