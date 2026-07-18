@@ -15,14 +15,12 @@ jobs:
 
       - name: 2. Fix Error APT (Suntik GPG Key Manual)
         run: |
-          echo "Mengunduh GPG Key Kali Linux terbaru lewat GitHub Runner..."
+          echo "Mengunduh GPG Key Kali Linux terbaru..."
           wget -q -O archive-key.asc https://archive.kali.org/archive-key.asc
           
-          echo "Menyuntikkan kunci ke dalam container Kali Linux..."
           docker cp archive-key.asc kali-gui:/tmp/archive-key.asc
           docker exec kali-gui apt-key add /tmp/archive-key.asc
           
-          echo "Melakukan update dan instalasi tools dasar..."
           docker exec kali-gui apt-get update -y
           docker exec kali-gui apt-get install -y wget curl gnupg2
 
@@ -41,7 +39,14 @@ jobs:
           docker exec kali-gui bash -c "apt-get update -y"
           docker exec kali-gui bash -c "apt-get install -y anydesk"
 
-      - name: 5. Start Cloudflare Tunnel
+      - name: 5. Restart Container Agar Stabil
+        run: |
+          echo "Me-restart Kali Linux untuk menyegarkan VNC Server..."
+          docker restart kali-gui
+          echo "Menunggu 20 detik agar GUI menyala kembali..."
+          sleep 20
+
+      - name: 6. Start Cloudflare Tunnel
         run: |
           echo "Menyiapkan Cloudflare Tunnel..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
