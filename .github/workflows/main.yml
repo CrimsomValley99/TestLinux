@@ -1,4 +1,4 @@
-name: Run Kali GUI with Cloudflare Tunnel
+name: Debug Kali GUI Port 9020
 
 on:
   workflow_dispatch:
@@ -7,28 +7,29 @@ jobs:
   run-kali-cf:
     runs-on: ubuntu-latest
     steps:
-      - name: Jalankan Kali Docker
+      - name: 1. Jalankan Kali Docker (Sesuai README)
         run: |
-          # Jalankan container
-          docker run -d --name kali-gui -p 8080:8080 iphoneintosh/kali-docker:latest
+          # Menggunakan port 9020 untuk web dan 9021 untuk VNC langsung
+          docker run -d --privileged --name kali-gui -p 9020:8080 -p 9021:5900 iphoneintosh/kali-docker:latest
           
-          # Beri waktu lebih lama agar desktop, VNC, dan sertifikat SSL siap sepenuhnya
-          echo "Menunggu Kali Linux GUI siap (30 detik)..."
+          echo "Menunggu 30 detik agar GUI menyala..."
           sleep 30
+
+      - name: 2. CEK LOG DOCKER (Buka ini jika masih 502)
+        run: |
+          echo "=== STATUS CONTAINER ==="
+          docker ps -a
           
-          # Cek log docker untuk memastikan tidak ada error saat booting
+          echo -e "\n=== LOG ERROR KALI LINUX ==="
           docker logs kali-gui
 
-      - name: Install Cloudflared
+      - name: 3. Install & Start Cloudflare (Target Port 9020)
         run: |
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
-
-      - name: Start Cloudflare Tunnel
-        run: |
-          # Menggunakan 127.0.0.1 alih-alih localhost untuk menghindari isu IPv6
-          # Mengabaikan TLS verify karena pakai self-signed cert
-          cloudflared tunnel --url http://127.0.0.1:8080 --no-tls-verify > cloudflared.log 2>&1 &
+          
+          # Targetkan ke port 9020 sesuai dengan port luarnya Docker
+          cloudflared tunnel --url https://127.0.0.1:9020 --no-tls-verify > cloudflared.log 2>&1 &
           
           sleep 10
           
@@ -36,8 +37,7 @@ jobs:
           echo "Tautan Cloudflare Tunnel Kamu:"
           grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' cloudflared.log
           echo "=========================================================="
-          echo "PENTING: Tambahkan /vnc.html di akhir URL saat dibuka di browser!"
-          echo "Contoh: https://link-kamu.trycloudflare.com/vnc.html"
-          echo "Password VNC: changeme"
+          echo "PENTING: Tambahkan /vnc.html di akhir URL!"
+          echo "Password: changeme"
           
           sleep 3600
