@@ -1,52 +1,46 @@
-name: Kali GUI + Chrome & AnyDesk
+name: Kali Modern GUI + Chrome & AnyDesk
 
 on:
   workflow_dispatch:
 
 jobs:
-  run-kali-full:
+  run-kali-modern:
     runs-on: ubuntu-latest
     steps:
-      - name: 1. Jalankan Kali Docker
+      - name: 1. Clone & Build Modern Kali Docker
         run: |
-          docker run -dit --privileged --name kali-gui -p 9020:8080 -p 9021:5900 iphoneintosh/kali-docker:latest
-          echo "Menunggu 20 detik agar sistem GUI booting..."
+          # Mengambil file dari repositori yang kamu temukan
+          git clone https://github.com/csalab-id/kalilinux-docker.git
+          cd kalilinux-docker
+          
+          echo "Membangun sistem Docker (proses ini butuh 1-2 menit)..."
+          docker build -t modern-kali .
+          
+          echo "Menjalankan Kali Linux..."
+          # Port internal 8080 diarahkan ke luar 9020. Password diatur ke 'changeme'
+          docker run -dit --privileged --name kali-gui -p 9020:8080 -e PASSWORD="changeme" modern-kali
+          
+          echo "Menunggu 20 detik agar Desktop menyala..."
           sleep 20
 
-      - name: 2. Fix Error APT (Suntik GPG Key Manual)
+      - name: 2. Install Chrome & AnyDesk (Tanpa Error GPG)
         run: |
-          echo "Mengunduh GPG Key Kali Linux terbaru..."
-          wget -q -O archive-key.asc https://archive.kali.org/archive-key.asc
-          
-          docker cp archive-key.asc kali-gui:/tmp/archive-key.asc
-          docker exec kali-gui apt-key add /tmp/archive-key.asc
-          
+          echo "Update repositori bawaan..."
           docker exec kali-gui apt-get update -y
           docker exec kali-gui apt-get install -y wget curl gnupg2
-
-      - name: 3. Install Google Chrome Latest
-        run: |
-          echo "Mengunduh dan menginstal Google Chrome..."
+          
+          echo "Mengunduh dan menginstal Google Chrome Latest..."
           docker exec kali-gui bash -c "wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb"
           docker exec kali-gui bash -c "apt-get install -y ./google-chrome-stable_current_amd64.deb"
           docker exec kali-gui bash -c "rm google-chrome-stable_current_amd64.deb"
-
-      - name: 4. Install AnyDesk
-        run: |
-          echo "Menambahkan repo dan menginstal AnyDesk..."
+          
+          echo "Mengunduh dan menginstal AnyDesk..."
           docker exec kali-gui bash -c "wget -qO - https://keys.anydesk.com/repos/DEB-GPG-KEY | apt-key add -"
           docker exec kali-gui bash -c 'echo "deb http://deb.anydesk.com/ all main" > /etc/apt/sources.list.d/anydesk.list'
           docker exec kali-gui bash -c "apt-get update -y"
           docker exec kali-gui bash -c "apt-get install -y anydesk"
 
-      - name: 5. Restart Container Agar Stabil
-        run: |
-          echo "Me-restart Kali Linux untuk menyegarkan VNC Server..."
-          docker restart kali-gui
-          echo "Menunggu 20 detik agar GUI menyala kembali..."
-          sleep 20
-
-      - name: 6. Start Cloudflare Tunnel
+      - name: 3. Start Cloudflare Tunnel
         run: |
           echo "Menyiapkan Cloudflare Tunnel..."
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
