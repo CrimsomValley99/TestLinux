@@ -41,7 +41,9 @@ jobs:
               dbus-x11 \
               x11-xserver-utils \
               xfonts-base \
-              wget curl net-tools procps 2>&1 | tail -5
+              net-tools \
+              iproute2 \
+              wget curl procps 2>&1 | tail -5
             echo 'INSTALL DONE'
           "
           echo "=== PACKAGES OK ==="
@@ -66,36 +68,31 @@ jobs:
       - name: 4. Start Xvfb + XFCE (dbus-run-session) + x11vnc + noVNC
         run: |
           echo "=== [1/4] START XVFB ==="
-          # Bersihkan lock file lama dulu
           docker exec -u root kali-gui bash -c "
             rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null || true
             rm -rf /root/.cache/sessions/ 2>/dev/null || true
           "
           docker exec -d -u root kali-gui bash -c "
-            Xvfb :1 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+            Xvfb :1 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset
           "
           sleep 4
           docker exec -u root kali-gui bash -c "
             ps aux | grep -c '[X]vfb' && echo 'Xvfb: RUNNING' || echo 'Xvfb: NOT RUNNING'
           "
 
-          echo "=== [2/4] START XFCE4 VIA dbus-run-session ==="
-          # FIX UTAMA: dbus-run-session memastikan D-Bus session ada
-          # Tanpa ini: xfce4-panel, xfdesktop, xfwm4 tidak bisa load -> hanya cursor saja
+          echo "=== [2/4] START XFCE4 via dbus-run-session ==="
           docker exec -d -u root kali-gui bash -c "
             export DISPLAY=:1
             export HOME=/root
-            # Hapus session config lama yang bisa menyebabkan crash
             rm -f /root/.config/xfce4/xfconf/xfce-perchannel-xml/displays.xml 2>/dev/null || true
-            # dbus-run-session: start D-Bus session bus, lalu jalankan XFCE di dalamnya
-            dbus-run-session -- startxfce4 > /tmp/xfce4.log 2>&1 &
+            dbus-run-session -- startxfce4 > /tmp/xfce4.log 2>&1
           "
           sleep 12
           docker exec -u root kali-gui bash -c "
-            echo '--- Proses XFCE yang berjalan ---'
-            ps aux | grep -E '(xfce|xfwm|xfdesktop|xfce4-panel|dbus)' | grep -v grep | head -15
-            echo '--- Log XFCE (5 baris terakhir) ---'
-            tail -5 /tmp/xfce4.log 2>/dev/null || echo 'Log kosong'
+            echo '--- Proses XFCE ---'
+            ps aux | grep -E '(xfce|xfwm|xfdesktop|xfce4-panel|dbus)' | grep -v grep | head -10
+            echo '--- Log XFCE ---'
+            cat /tmp/xfce4.log 2>/dev/null | tail -5 || echo 'Log kosong'
           "
 
           echo "=== [3/4] START X11VNC ==="
@@ -111,32 +108,34 @@ jobs:
               -xkb 2>&1
           "
           sleep 4
+          # FIX: pakai netstat (bukan ss), dan || true agar tidak gagalkan step
           docker exec -u root kali-gui bash -c "
-            ss -tlnp | grep 5900 && echo 'x11vnc port 5900: LISTEN' || echo 'x11vnc: PORT NOT OPEN!'
-            tail -5 /tmp/x11vnc.log 2>/dev/null
-          "
+            netstat -tlnp 2>/dev/null | grep 5900 && echo 'x11vnc port 5900: LISTEN ✅' || echo 'x11vnc port 5900: belum terdeteksi'
+            cat /tmp/x11vnc.log 2>/dev/null | tail -5
+          " || true
 
-          echo "=== [4/4] START NOVNC WEBSOCKIFY ==="
+          echo "=== [4/4] START NOVNC ==="
           docker exec -d -u root kali-gui bash -c "
             websockify \
               --web=/usr/share/novnc/ \
               --log-file=/tmp/websockify.log \
-              6080 localhost:5900 &
+              6080 localhost:5900
           "
           sleep 4
+          # FIX: pakai netstat, dan || true
           docker exec -u root kali-gui bash -c "
-            ss -tlnp | grep 6080 && echo 'noVNC port 6080: LISTEN' || echo 'noVNC: PORT NOT OPEN!'
-            tail -5 /tmp/websockify.log 2>/dev/null
-          "
+            netstat -tlnp 2>/dev/null | grep 6080 && echo 'noVNC port 6080: LISTEN ✅' || echo 'noVNC port 6080: belum terdeteksi'
+            cat /tmp/websockify.log 2>/dev/null | tail -5
+          " || true
 
           echo "=== STATUS LENGKAP ==="
           docker exec -u root kali-gui bash -c "
-            echo '--- Semua proses aktif ---'
+            echo '--- Proses aktif ---'
             ps aux | grep -E '(Xvfb|xfce|xfwm4|xfdesktop|xfce4-panel|x11vnc|websockify)' | grep -v grep
-            echo ''
-            echo '--- Port yang listen ---'
-            ss -tlnp | grep -E '(5900|6080)'
-          "
+            echo '--- Port listen ---'
+            netstat -tlnp 2>/dev/null | grep -E '(5900|6080)' || echo 'netstat check done'
+          " || true
+          echo "=== STACK READY ==="
 
       - name: 5. Cloudflare Tunnel + Tampilkan Link Akses
         run: |
@@ -147,11 +146,12 @@ jobs:
           CONTAINER_IP=$(docker inspect kali-gui --format='{{.NetworkSettings.IPAddress}}')
           echo "Container IP: $CONTAINER_IP"
 
-          # Verifikasi port 6080 bisa diakses dari host
+          # Test koneksi dulu
           curl -s --max-time 5 http://${CONTAINER_IP}:6080 > /dev/null && \
-            echo "Port 6080 dari host: OK" || \
-            echo "Port 6080 dari host: TIDAK BISA DIAKSES"
+            echo "Port 6080: ACCESSIBLE ✅" || \
+            echo "Port 6080: check container logs"
 
+          # Buka tunnel
           cloudflared tunnel --url http://${CONTAINER_IP}:6080 > /tmp/cloudflared.log 2>&1 &
 
           echo "Menunggu tunnel stabil (25 detik)..."
