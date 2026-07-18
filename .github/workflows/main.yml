@@ -8,110 +8,184 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 360
     steps:
-      - name: 1. Deploy Kali Linux + XFCE + noVNC
+      - name: 1. Deploy Kali Linux Container
         run: |
-          echo "Menarik image Kali Linux resmi..."
+          echo "=== DEPLOY CONTAINER ==="
           docker pull kalilinux/kali-rolling
 
-          echo "Menjalankan container Kali Linux..."
           docker run -d \
             --name kali-gui \
             --security-opt seccomp=unconfined \
             --shm-size=4gb \
             --privileged \
-            -p 5901:5901 \
-            -p 6080:6080 \
-            -e DISPLAY=:1 \
             kalilinux/kali-rolling \
             /bin/bash -c "sleep infinity"
 
-          echo "Menunggu container siap (5 detik)..."
-          sleep 5
-
-          echo "=========================================="
-          echo "STATUS CONTAINER:"
+          sleep 3
+          echo "Container status:"
           docker ps
-          echo "=========================================="
+          echo "=== DEPLOY OK ==="
 
-      - name: 2. Install XFCE + VNC + noVNC di dalam Kali
+      - name: 2. Install Xvfb + x11vnc + noVNC + XFCE
         run: |
-          echo "Update apt dan install XFCE + VNC..."
+          echo "=== INSTALL PACKAGES ==="
+          # Gunakan x11vnc + Xvfb, BUKAN tightvncserver
+          # Alasan: tightvncserver di Docker headless sering gagal karena tidak ada display fisik
+          # x11vnc bisa attach ke Xvfb (virtual framebuffer) dengan lebih reliable
           docker exec -u root kali-gui bash -c "
             export DEBIAN_FRONTEND=noninteractive
-            apt-get update -qq
+            apt-get update -qq 2>&1 | tail -3
+            echo 'Installing desktop + VNC tools...'
             apt-get install -y --no-install-recommends \
               kali-desktop-xfce \
-              tightvncserver \
+              xfce4 \
+              xfce4-terminal \
+              x11vnc \
+              xvfb \
               novnc \
               websockify \
               dbus-x11 \
               x11-xserver-utils \
-              wget curl
+              wget curl net-tools procps 2>&1 | tail -5
+            echo 'Install DONE'
           "
-          echo "Install selesai!"
+          echo "=== PACKAGES OK ==="
 
       - name: 3. Install Chrome & AnyDesk
         run: |
-          echo "Mengunduh dan install Chrome..."
+          echo "=== INSTALL CHROME ==="
           docker exec -u root kali-gui bash -c "
             wget -q https://dl.google.com/linux/direct/google-chrome-stable_current_amd64.deb -O /tmp/chrome.deb
-            apt-get install -y /tmp/chrome.deb || apt-get install -yf
+            DEBIAN_FRONTEND=noninteractive apt-get install -y /tmp/chrome.deb 2>&1 | tail -3
+            echo 'Chrome installed: '
+            google-chrome --version || echo 'chrome not found'
           "
 
-          echo "Install AnyDesk..."
+          echo "=== INSTALL ANYDESK ==="
           docker exec -u root kali-gui bash -c "
             mkdir -p /etc/apt/keyrings
             curl -fsSL https://keys.anydesk.com/repos/DEB-GPG-KEY | gpg --dearmor -o /etc/apt/keyrings/anydesk.gpg
             echo 'deb [signed-by=/etc/apt/keyrings/anydesk.gpg] http://deb.anydesk.com/ all main' > /etc/apt/sources.list.d/anydesk.list
-            apt-get update -qq && apt-get install -y anydesk
-          "
-          echo "Chrome & AnyDesk berhasil diinstall!"
+            apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y anydesk 2>&1 | tail -3
+            echo 'AnyDesk installed'
+          " || echo "AnyDesk install failed, continuing..."
+          echo "=== CHROME + ANYDESK OK ==="
 
-      - name: 4. Start VNC Server + noVNC
+      - name: 4. Start Xvfb + XFCE + x11vnc + noVNC (dengan health check)
         run: |
-          echo "Menyiapkan VNC server di dalam container..."
-          docker exec -u root kali-gui bash -c "
-            mkdir -p /root/.vnc
-            echo 'password' | vncpasswd -f > /root/.vnc/passwd
-            chmod 600 /root/.vnc/passwd
-          "
+          echo "=== START DISPLAY STACK ==="
 
+          # STEP A: Start Xvfb (virtual display)
+          echo "[1/4] Starting Xvfb virtual display..."
+          docker exec -d -u root kali-gui bash -c "
+            rm -f /tmp/.X1-lock /tmp/.X11-unix/X1 2>/dev/null
+            Xvfb :1 -screen 0 1920x1080x24 -ac +extension GLX +render -noreset &
+          "
+          sleep 3
+
+          # Verifikasi Xvfb berjalan
+          echo "Verifikasi Xvfb:"
+          docker exec -u root kali-gui bash -c "ps aux | grep Xvfb | grep -v grep || echo 'ERROR: Xvfb tidak berjalan!'"
+
+          # STEP B: Start XFCE4 desktop
+          echo "[2/4] Starting XFCE4 desktop..."
           docker exec -d -u root kali-gui bash -c "
             export DISPLAY=:1
-            vncserver :1 -geometry 1920x1080 -depth 24 -passwordfile /root/.vnc/passwd 2>&1 || true
-            sleep 3
-            DISPLAY=:1 startxfce4 &
+            export DBUS_SESSION_BUS_ADDRESS=''
+            startxfce4 &
           "
+          sleep 8
 
-          echo "Memulai noVNC..."
+          # STEP C: Start x11vnc (attach ke Xvfb display)
+          echo "[3/4] Starting x11vnc VNC server..."
           docker exec -d -u root kali-gui bash -c "
-            /usr/share/novnc/utils/novnc_proxy --vnc localhost:5901 --listen 6080 &
+            x11vnc \
+              -display :1 \
+              -passwd password123 \
+              -forever \
+              -shared \
+              -rfbport 5900 \
+              -bg \
+              -o /tmp/x11vnc.log \
+              -xkb 2>&1
+          "
+          sleep 5
+
+          # Verifikasi x11vnc listening di port 5900
+          echo "Verifikasi x11vnc port 5900:"
+          docker exec -u root kali-gui bash -c "
+            netstat -tlnp 2>/dev/null | grep 5900 || ss -tlnp | grep 5900 || echo 'ERROR: Port 5900 tidak terbuka!'
+            cat /tmp/x11vnc.log 2>/dev/null | tail -10
           "
 
+          # STEP D: Start noVNC websockify proxy
+          echo "[4/4] Starting noVNC websockify proxy (port 6080 -> 5900)..."
+          docker exec -d -u root kali-gui bash -c "
+            websockify --web=/usr/share/novnc/ \
+              --log-file=/tmp/websockify.log \
+              6080 localhost:5900 &
+          "
           sleep 5
-          echo "VNC & noVNC siap!"
 
-      - name: 5. Start Cloudflare Tunnel & Tampilkan Link
+          # Verifikasi websockify listening di port 6080
+          echo "Verifikasi noVNC port 6080:"
+          docker exec -u root kali-gui bash -c "
+            netstat -tlnp 2>/dev/null | grep 6080 || ss -tlnp | grep 6080 || echo 'ERROR: Port 6080 tidak terbuka!'
+            cat /tmp/websockify.log 2>/dev/null | tail -10
+          "
+
+          echo "=== FULL STACK STATUS ==="
+          docker exec -u root kali-gui bash -c "
+            echo '--- Processes running ---'
+            ps aux | grep -E '(Xvfb|xfce|x11vnc|websockify|novnc)' | grep -v grep
+            echo ''
+            echo '--- Ports listening ---'
+            netstat -tlnp 2>/dev/null || ss -tlnp
+          "
+          echo "=== DISPLAY STACK OK ==="
+
+      - name: 5. Expose port 6080 ke host + Cloudflare Tunnel
         run: |
-          echo "Menginstall cloudflared..."
+          echo "=== START CLOUDFLARE TUNNEL ==="
+
+          # Cek apakah container port 6080 bisa diakses dari host
+          echo "Cek koneksi dari host ke container port 6080:"
+          docker inspect kali-gui --format='{{.NetworkSettings.IPAddress}}' | xargs -I{} curl -s --max-time 5 http://{}:6080 | head -5 || echo "Container IP check done"
+
+          # Install cloudflared
           wget -q https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-amd64.deb
           sudo dpkg -i cloudflared-linux-amd64.deb
 
-          echo "Membuka tunnel ke port 6080 (noVNC)..."
-          cloudflared tunnel --url http://localhost:6080 > /tmp/cloudflared.log 2>&1 &
+          # Buat SSH tunnel dari host ke container port 6080
+          CONTAINER_IP=$(docker inspect kali-gui --format='{{.NetworkSettings.IPAddress}}')
+          echo "Container IP: $CONTAINER_IP"
 
-          echo "Menunggu tunnel stabil (20 detik)..."
-          sleep 20
+          # Tunnel ke IP container langsung (bukan localhost)
+          cloudflared tunnel --url http://${CONTAINER_IP}:6080 > /tmp/cloudflared.log 2>&1 &
+          CF_PID=$!
+
+          echo "Menunggu tunnel stabil (25 detik)..."
+          sleep 25
 
           echo "=========================================="
           echo "LOG CLOUDFLARE:"
           cat /tmp/cloudflared.log
           echo "=========================================="
 
-          echo "LINK AKSES KAMU:"
-          grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1
+          LINK=$(grep -o 'https://[-0-9a-z]*\.trycloudflare\.com' /tmp/cloudflared.log | head -1)
+          echo ""
           echo "=========================================="
-          echo "Buka link di atas -> masukkan password VNC: password"
+          echo "LINK AKSES KALI LINUX:"
+          echo "$LINK"
+          echo ""
+          echo "Setelah buka link, tambahkan /vnc.html di akhir:"
+          echo "${LINK}/vnc.html"
+          echo ""
+          echo "Password VNC: password123"
           echo "=========================================="
 
-          sleep 21600
+          # Loop pantau dan cetak ulang link setiap 5 menit
+          for i in $(seq 1 72); do
+            sleep 300
+            echo "[$(date)] Session masih aktif. Link: $LINK/vnc.html"
+          done
