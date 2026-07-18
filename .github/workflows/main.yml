@@ -175,8 +175,7 @@ jobs:
               -rfbport 5900 \
               -o /tmp/x11vnc.log \
               -bg \
-              -xkb \
-              -allow_root 2>&1
+              -xkb 2>&1
           "
           sleep 5
           docker exec -u root kali-gui bash -c "
@@ -189,7 +188,7 @@ jobs:
             websockify \
               --web=/usr/share/novnc/ \
               --log-file=/tmp/websockify.log \
-              6080 localhost:5900
+              6080 127.0.0.1:5900
           "
           sleep 5
           docker exec -u root kali-gui bash -c "
